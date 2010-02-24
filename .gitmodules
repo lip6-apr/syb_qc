@@ -1,0 +1,3 @@
+[submodule "combstruct"]
+	path = combstruct
+	url = http://genal.algo-prog.info/repo/boltzoc
