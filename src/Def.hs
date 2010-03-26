@@ -11,5 +11,3 @@ data Ref  = Ref Int String
 data Def = Def DataType Sum
 
 newtype Defs = Defs (Map String (Def, Int))
-
-type Oracle = Map String Double

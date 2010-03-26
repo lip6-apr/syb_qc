@@ -1,101 +1,46 @@
-{-# INCLUDE "../combstruct/src/combstruct.h" #-}
-{-# LANGUAGE ForeignFunctionInterface #-}
+module Combstruct (Oracle, defsToOracle) where
 
-module Combstruct (defsToOracle) where
-
-import Foreign
-import Foreign.C.Types
-import Foreign.Marshal.Alloc
-import Foreign.Marshal.Array
-import Control.Monad
-import Data.Generics
+import Data.Generics (dataTypeName)
 import Data.List (sortBy)
 import Data.Map (Map)
+import Data.Array.IArray
 import qualified Data.Map as Map
 import Def
+import Oracle
+-- import Oracle.Simple
+import Oracle.Newton
 
-data CombEqStr = CombEqStr
-type CombEq = Ptr CombEqStr
-data CombSysStr = CombSysStr
-type CombSys = Ptr CombSysStr
+type Oracle = Map String Double
 
-foreign import ccall epsilon :: IO CombEq
-
-foreign import ccall atom :: IO CombEq
-
-foreign import ccall "sum" union :: CombEq -> CombEq -> IO CombEq
-
-foreign import ccall prod :: CombEq -> CombEq -> IO CombEq
-
-foreign import ccall seq :: CombEq -> IO CombEq
-
-foreign import ccall ref :: CInt -> IO CombEq
-
-foreign import ccall free_eq :: CombEq -> IO ()
-
-foreign import ccall empty_sys :: IO CombSys
-
-foreign import ccall add_sys :: CombSys -> CombEq -> IO ()
-
-foreign import ccall sys_len :: CombSys -> CInt
-
-foreign import ccall free_sys :: CombSys -> IO ()
-
-foreign import ccall eval_sys 
-  :: CombSys -> CDouble -> CDouble -> Ptr CDouble -> IO ()
-
-foreign import ccall eval_point_sys 
-  :: CombSys -> CDouble -> CDouble -> Ptr CDouble -> IO ()
-
-foreign import ccall sing_sys
-  :: CombSys -> CDouble -> CDouble -> Ptr CDouble -> IO CDouble
-
-foreign import ccall mean_sys 
-  :: CombSys -> CDouble -> CDouble -> CDouble -> Ptr CDouble -> IO CDouble
-
-refToComb :: Ref -> IO CombEq
+refToComb :: Ref -> CombEq
 refToComb (Ref 0 s) = error "Impossible: nil reference"
-refToComb (Ref i s) = ref (fromIntegral i)
+refToComb (Ref i s) = R i
 
-prodToComb :: Prod -> IO CombEq
-prodToComb (Prod rs) = do
-  lr <- mapM refToComb rs
-  a <- atom
-  foldM prod a lr
+prodToComb :: Prod -> CombEq
+prodToComb (Prod rs) = foldl P A $ map refToComb rs
 
-sumToComb :: Sum -> IO CombEq
-sumToComb (Sum ps) = do
-  lp <- mapM prodToComb ps
-  case lp of
-    []  -> epsilon
-    h:t -> foldM union h t
+sumToComb :: Sum -> CombEq
+sumToComb (Sum ps) = foldl1 S $ map prodToComb ps
 
-defToComb :: Def -> IO CombEq
+defToComb :: Def -> CombEq
 defToComb (Def _ s) = sumToComb s
 
-defsToComb :: Defs -> IO CombSys
-defsToComb (Defs m) = do
-  let ds = map fst $ sortBy (\(_, i) -> \(_, j) -> compare i j) (Map.elems m)
-  sys <- empty_sys
-  cs <- mapM defToComb ds
-  mapM_ (add_sys sys) cs
-  return sys
+defsToComb :: Defs -> CombSys
+defsToComb (Defs m) =
+  array (1,Map.size m) $ map (\(d,i) -> (i,defToComb d)) (Map.elems m)
 
-defsToVals :: [Def] -> IO [Double]
-defsToVals ds = do
-  sys <- empty_sys
-  cs <- mapM defToComb ds
-  mapM_ (add_sys sys) cs
-  y <- newArray (replicate (length ds) (0.0::CDouble))
-  z <- sing_sys sys (1.0e-6::CDouble) (1.0e-4::CDouble) y
-  res <- peekArray (length ds) y
-  free y
-  free_sys sys
-  return $ map realToFrac res
+singPrecision :: Double
+singPrecision = 1.0e-10
+
+valPrecision :: Double
+valPrecision = 1.0e-6
+
+combToVals :: CombSys -> [Double]
+combToVals sys = stateToList st
+               where st :: State
+                     st = snd $ sing_sys sys singPrecision valPrecision
 
 defsToOracle :: Defs -> Oracle
-{-# NOINLINE defsToOracle #-}
-defsToOracle (Defs m) = do
-  let ds = map fst $ sortBy (\(_, i) -> \(_, j) -> compare i j) (Map.elems m)
-  let l = unsafePerformIO $ defsToVals ds
-  Map.fromList $ zip (map (\(Def d _) -> dataTypeName d) ds) l
+defsToOracle (Defs m) =
+  Map.fromList $ zip (map (\((Def d _), _) -> dataTypeName d) (Map.elems m)) $ vals
+  where vals = combToVals $ defsToComb (Defs m)

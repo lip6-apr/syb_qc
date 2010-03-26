@@ -7,6 +7,9 @@ import Test.QuickCheck
 import Monad
 import Def
 import Combstruct
+-- import Debug.Trace
+
+-- TODO remove Int from Ref
 
 toDef x = Def (dataTypeOf x) sum
   where sum  = Sum $ map prod argDataTypes
@@ -50,4 +53,5 @@ toGenAux o x = do gmapM (toGenAux o) . floatToInstance =<< choose (0, sum po)
         refOracle  (Ref i s)  = Map.findWithDefault 0 s o
 
 toGen :: (Data a) => a -> Gen a
+-- toGen x | trace (show $ toOracle x) False = undefined
 toGen x = toGenAux (toOracle x) x

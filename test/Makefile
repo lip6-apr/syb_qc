@@ -1,7 +1,7 @@
 all: prog
 
-prog: prog.hs
-	ghc --make -i../src -L../combstruct/src -lcombstruct $<
+%: %.hs
+	ghc --make -i../src $<
 
 clean:
 	rm -f test prog *.o *.hi
